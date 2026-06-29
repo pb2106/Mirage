@@ -5,6 +5,7 @@ use mirage_sandbox::SandboxHandle;
 pub mod bluetooth;
 pub mod cpu;
 pub mod dns;
+pub mod geoclue;
 pub mod hostname;
 pub mod locale;
 pub mod mac;

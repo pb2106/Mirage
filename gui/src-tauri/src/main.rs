@@ -1,7 +1,5 @@
-#![cfg_attr(
-    all(not(debug_assertions), target_os = "windows"),
-    windows_subsystem = "windows"
-)]
+// Tauri v2: windows_subsystem is now handled per-target at the crate level.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use mirage_core::audit::AuditEngine;
 use mirage_protocol::SignalValue;
@@ -13,6 +11,7 @@ use mirage_providers::{
 };
 use std::collections::HashMap;
 
+// Tauri v2: #[tauri::command] is unchanged; generate_handler! is unchanged.
 #[tauri::command]
 fn run_audit() -> Result<HashMap<String, SignalValue>, String> {
     let mut engine = AuditEngine::new();
@@ -40,6 +39,8 @@ fn run_audit() -> Result<HashMap<String, SignalValue>, String> {
     }
 }
 
+// Tauri v2: Builder::default() → .invoke_handler() → .run() is unchanged.
+// The `tauri::generate_context!()` macro is unchanged.
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![run_audit])

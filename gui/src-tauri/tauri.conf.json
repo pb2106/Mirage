@@ -1,42 +1,37 @@
 {
+  "productName": "mirage-gui",
+  "version": "0.1.0",
+  "identifier": "com.mirage.dashboard",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
-    "devPath": "http://localhost:1420",
-    "distDir": "../dist",
-    "withGlobalTauri": false
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
   },
-  "package": {
-    "productName": "mirage-gui",
-    "version": "0.1.0"
-  },
-  "tauri": {
-    "allowlist": {
-      "all": false
-    },
-    "bundle": {
-      "active": true,
-      "targets": "all",
-      "identifier": "com.mirage.dashboard",
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icon.icns",
-        "icon.ico"
-      ]
-    },
-    "security": {
-      "csp": null
-    },
+  "app": {
+    "withGlobalTauri": false,
     "windows": [
       {
-        "fullscreen": false,
+        "title": "Mirage Dashboard",
+        "width": 800,
         "height": 600,
         "resizable": true,
-        "title": "Mirage Dashboard",
-        "width": 800
+        "fullscreen": false
       }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icon.icns",
+      "icon.ico"
     ]
   }
 }
