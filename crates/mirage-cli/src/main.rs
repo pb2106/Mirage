@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use mirage_core::audit::AuditEngine;
 use mirage_providers::{
-    bluetooth::BluetoothProvider, dns::DnsProvider, geoclue::GeoClueProvider,
+    bluetooth::BluetoothProvider, dns::DnsProvider,
     hostname::HostnameProvider, locale::LocaleProvider, machine_id::MachineIdProvider,
     network::{Ipv4Provider, Ipv6Provider}, timezone::TimezoneProvider, webrtc::WebRtcProvider,
     wifi::WifiProvider,
@@ -53,7 +53,6 @@ fn build_audit_engine() -> AuditEngine {
     engine.register_provider(Box::new(Ipv6Provider));
     engine.register_provider(Box::new(WebRtcProvider));
     engine.register_provider(Box::new(DnsProvider));
-    engine.register_provider(Box::new(GeoClueProvider));
     engine.register_provider(Box::new(WifiProvider));
     engine.register_provider(Box::new(BluetoothProvider));
     engine

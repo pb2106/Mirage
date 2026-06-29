@@ -9,6 +9,7 @@ mirage-protocol = { path = "../mirage-protocol" }
 mirage-providers = { path = "../mirage-providers" }
 mirage-sandbox = { path = "../mirage-sandbox" }
 mirage-netns = { path = "../mirage-netns" }
+mirage-dbus-proxy = { path = "../mirage-dbus-proxy" }
 thiserror = "2.0.18"
 
 [dev-dependencies]

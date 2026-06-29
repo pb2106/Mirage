@@ -1,5 +1,5 @@
 use crate::IdentityProvider;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use mirage_protocol::{Profile, SignalKind, SignalValue};
 use mirage_sandbox::SandboxHandle;
 use std::fs;

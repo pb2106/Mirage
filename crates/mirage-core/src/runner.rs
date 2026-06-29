@@ -9,6 +9,7 @@ use mirage_providers::{
 };
 use mirage_sandbox::SandboxHandle;
 use mirage_netns::Netns;
+use mirage_dbus_proxy::spawn_fake_system_bus;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -53,21 +54,42 @@ pub fn run_in_sandbox(app: &str, args: &[String], profile: &Profile) -> Result<(
         }
     }
 
+    // ── Fake D-Bus (GeoClue2) ─────────────────────────────────────────────
+    // Must start BEFORE build_bwrap_command so the socket file exists when
+    // we check for it and add the --bind argument.
+    let _dbus_proxy = if profile.gps.is_some() {
+        println!("Starting fake D-Bus system bus for location spoofing...");
+        let proxy = spawn_fake_system_bus(&ns.tmp_dir, profile.gps.clone())?;
+        // Wait for dbus-daemon to create the socket file
+        let socket = ns.tmp_dir.join("system_bus_socket");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !socket.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        if !socket.exists() {
+            eprintln!("Warning: dbus-daemon socket never appeared — D-Bus spoofing disabled");
+            None
+        } else {
+            Some(proxy)
+        }
+    } else {
+        None
+    };
+
     let mut cmd = build_bwrap_command(&ns, profile, app, args)?;
-    
-    // Set up network namespace if requested
+
+    // ── Network namespace ─────────────────────────────────────────────────
     let _netns = if profile.isolate_network.unwrap_or(false) {
         println!("Setting up isolated network namespace (may prompt for sudo)...");
         let netns = Netns::create(std::process::id(), profile.mac_address.as_deref())?;
-        
+
         let user = std::env::var("USER").unwrap_or_else(|_| "nobody".to_string());
-        
-        // We must wrap the bwrap command in `sudo ip netns exec mirage-pid sudo -u user bwrap ...`
+
         let mut wrapped_cmd = Command::new("sudo");
-        wrapped_cmd.args(["ip", "netns", "exec", &netns.name, "sudo", "-u", &user]);
+        wrapped_cmd.args(["ip", "netns", "exec", &netns.name, "sudo", "-E", "-u", &user]);
         wrapped_cmd.arg(cmd.get_program());
         wrapped_cmd.args(cmd.get_args());
-        
+
         cmd = wrapped_cmd;
         Some(netns)
     } else {
@@ -168,6 +190,13 @@ fn build_bwrap_command(
     if fake_mac.exists() && !profile.isolate_network.unwrap_or(false) {
         bind_over(&mut cmd, &fake_mac, Path::new("/sys/class/net/eth0/address"));
         bind_over(&mut cmd, &fake_mac, Path::new("/sys/class/net/wlan0/address"));
+    }
+
+    // D-Bus System Bus — bind our fake socket over the canonical path only.
+    // /var/run is a symlink to /run on modern systems so one bind suffices.
+    let fake_dbus = tmp_dir.join("system_bus_socket");
+    if fake_dbus.exists() {
+        bind_over(&mut cmd, &fake_dbus, Path::new("/run/dbus/system_bus_socket"));
     }
 
     // ── Locale data ────────────────────────────────────────────────────────
