@@ -1,0 +1,13 @@
+# Mirage Identity Profile: Tokyo
+name: tokyo
+timezone: Asia/Tokyo
+locale: ja_JP.UTF-8
+hostname: ubuntu-tok01
+machine_id: cafebabecafebabecafebabecafebabe
+dns:
+  - 8.8.8.8
+  - 8.8.4.4
+gps:
+  lat: 35.6762
+  lon: 139.6503
+  accuracy: 15.0

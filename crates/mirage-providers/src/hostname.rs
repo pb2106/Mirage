@@ -22,13 +22,24 @@ impl IdentityProvider for HostnameProvider {
         Ok(SignalValue::Hostname(hostname_str))
     }
 
-    fn projected_value(&self, _profile: &Profile) -> Result<SignalValue> {
-        // Stub for Phase 2
-        anyhow::bail!("Not implemented yet (Phase 2)")
+    fn projected_value(&self, profile: &Profile) -> Result<SignalValue> {
+        profile
+            .hostname
+            .clone()
+            .map(SignalValue::Hostname)
+            .ok_or_else(|| anyhow::anyhow!("Profile '{}' has no hostname field", profile.name))
     }
 
-    fn apply(&self, _ns: &SandboxHandle, _profile: &Profile) -> Result<()> {
-        // Stub for Phase 2
+    fn apply(&self, ns: &SandboxHandle, profile: &Profile) -> Result<()> {
+        let hostname = profile
+            .hostname
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Profile '{}' has no hostname field", profile.name))?;
+
+        // Write fake /etc/hostname into the tmp_dir
+        let tmp_path = ns.tmp_dir.join("hostname");
+        std::fs::write(&tmp_path, format!("{hostname}\n"))?;
+        // Runner handles the bind mount
         Ok(())
     }
 }

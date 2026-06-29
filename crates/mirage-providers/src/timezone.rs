@@ -33,11 +33,27 @@ impl IdentityProvider for TimezoneProvider {
         anyhow::bail!("Failed to determine system timezone")
     }
 
-    fn projected_value(&self, _profile: &Profile) -> Result<SignalValue> {
-        anyhow::bail!("Not implemented yet (Phase 2)")
+    fn projected_value(&self, profile: &Profile) -> Result<SignalValue> {
+        profile
+            .timezone
+            .clone()
+            .map(SignalValue::Timezone)
+            .ok_or_else(|| anyhow::anyhow!("Profile '{}' has no timezone field", profile.name))
     }
 
-    fn apply(&self, _ns: &SandboxHandle, _profile: &Profile) -> Result<()> {
+    fn apply(&self, ns: &SandboxHandle, profile: &Profile) -> Result<()> {
+        let tz = profile
+            .timezone
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Profile '{}' has no timezone field", profile.name))?;
+
+        // Runner handles localtime
+
+        // Also write a fake /etc/timezone
+        let tmp_tz = ns.tmp_dir.join("timezone");
+        std::fs::write(&tmp_tz, format!("{tz}\n"))?;
+
+        // Runner handles TZ env
         Ok(())
     }
 }

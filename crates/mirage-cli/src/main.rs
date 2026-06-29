@@ -7,9 +7,14 @@ use mirage_providers::{
     network::{Ipv4Provider, Ipv6Provider}, timezone::TimezoneProvider, webrtc::WebRtcProvider,
     wifi::WifiProvider,
 };
+use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(
+    author,
+    version,
+    about = "Mirage — Linux Identity Virtualization & Audit Platform"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -19,9 +24,39 @@ struct Cli {
 enum Commands {
     /// Audit an application's visible identity signals
     Audit {
-        /// Target process ID to audit (optional for Phase 1 MVP)
+        /// Target process ID to audit (optional — audits host if omitted)
         pid: Option<u32>,
     },
+
+    /// Launch an application inside a sandboxed identity profile
+    Run {
+        /// Path to the application binary to launch
+        app: String,
+
+        /// Path to the YAML profile file to use
+        #[arg(short, long)]
+        profile: PathBuf,
+
+        /// Arguments to pass to the launched application
+        #[arg(last = true)]
+        args: Vec<String>,
+    },
+}
+
+fn build_audit_engine() -> AuditEngine {
+    let mut engine = AuditEngine::new();
+    engine.register_provider(Box::new(HostnameProvider));
+    engine.register_provider(Box::new(MachineIdProvider));
+    engine.register_provider(Box::new(TimezoneProvider));
+    engine.register_provider(Box::new(LocaleProvider));
+    engine.register_provider(Box::new(Ipv4Provider));
+    engine.register_provider(Box::new(Ipv6Provider));
+    engine.register_provider(Box::new(WebRtcProvider));
+    engine.register_provider(Box::new(DnsProvider));
+    engine.register_provider(Box::new(GeoClueProvider));
+    engine.register_provider(Box::new(WifiProvider));
+    engine.register_provider(Box::new(BluetoothProvider));
+    engine
 }
 
 fn main() -> Result<()> {
@@ -36,19 +71,7 @@ fn main() -> Result<()> {
                 println!("Auditing host (no PID provided)");
             }
 
-            let mut engine = AuditEngine::new();
-            engine.register_provider(Box::new(HostnameProvider));
-            engine.register_provider(Box::new(MachineIdProvider));
-            engine.register_provider(Box::new(TimezoneProvider));
-            engine.register_provider(Box::new(LocaleProvider));
-            engine.register_provider(Box::new(Ipv4Provider));
-            engine.register_provider(Box::new(Ipv6Provider));
-            engine.register_provider(Box::new(WebRtcProvider));
-            engine.register_provider(Box::new(DnsProvider));
-            engine.register_provider(Box::new(GeoClueProvider));
-            engine.register_provider(Box::new(WifiProvider));
-            engine.register_provider(Box::new(BluetoothProvider));
-
+            let engine = build_audit_engine();
             let results = engine.run_audit(*pid)?;
 
             println!("\n[Audit Results]");
@@ -68,6 +91,15 @@ fn main() -> Result<()> {
 
             let score = mirage_core::consistency::ConsistencyEngine::calculate_score(&rule_results);
             println!("Overall Consistency Score: {}/100", score);
+        }
+
+        Commands::Run { app, profile, args } => {
+            // Load profile
+            let profile = mirage_protocol::load_profile(profile)?;
+            println!("Loaded profile: {}", profile.name);
+
+            // Phase 2: launch via bwrap
+            mirage_core::runner::run_in_sandbox(app, args, &profile)?;
         }
     }
 

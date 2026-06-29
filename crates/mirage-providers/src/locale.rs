@@ -34,11 +34,21 @@ impl IdentityProvider for LocaleProvider {
         anyhow::bail!("Failed to determine system locale")
     }
 
-    fn projected_value(&self, _profile: &Profile) -> Result<SignalValue> {
-        anyhow::bail!("Not implemented yet (Phase 2)")
+    fn projected_value(&self, profile: &Profile) -> Result<SignalValue> {
+        profile
+            .locale
+            .clone()
+            .map(SignalValue::Locale)
+            .ok_or_else(|| anyhow::anyhow!("Profile '{}' has no locale field", profile.name))
     }
 
-    fn apply(&self, _ns: &SandboxHandle, _profile: &Profile) -> Result<()> {
+    fn apply(&self, _ns: &SandboxHandle, profile: &Profile) -> Result<()> {
+        let _locale = profile
+            .locale
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Profile '{}' has no locale field", profile.name))?;
+
+        // Runner handles LANG and LC_ALL
         Ok(())
     }
 }

@@ -1,10 +1,10 @@
 //! mirage-sandbox — Sandbox abstraction layer for Mirage.
 //!
-//! Phase 1: `SandboxHandle` is a stub representing an isolated execution
-//! environment. Providers accept it in their `apply()` method so the trait
-//! signature is stable, but actual bwrap integration is deferred to Phase 2.
+//! Phase 2: `SandboxHandle` tracks the per-run temporary directory where
+//! providers write fake files before launching the sandbox.
 
 use anyhow::Result;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -19,20 +19,39 @@ pub enum SandboxError {
 
 /// A handle to an active (or pending) sandbox environment.
 ///
-/// In Phase 1 this is a no-op stub — it holds a PID of the process it wraps
-/// once a sandbox is launched (Phase 2+), and exposes helper methods that
-/// providers use to bind-mount fake files or set environment variables inside
-/// the sandbox.
-#[derive(Debug, Default)]
+/// In Phase 2, this holds the temporary directory where providers write their
+/// fake files. The actual `bwrap` execution is handled by `mirage-core::runner`.
+#[derive(Debug)]
 pub struct SandboxHandle {
     /// PID of the sandboxed process, if running.
     pub pid: Option<u32>,
     /// Ephemeral root directory used for the overlay (set by bwrap in Phase 2).
-    pub root: Option<std::path::PathBuf>,
+    pub root: Option<PathBuf>,
+    /// Temporary directory for this run.
+    pub tmp_dir: PathBuf,
+}
+
+impl Default for SandboxHandle {
+    fn default() -> Self {
+        Self {
+            pid: None,
+            root: None,
+            tmp_dir: std::env::temp_dir().join(format!("mirage-{}", std::process::id())),
+        }
+    }
 }
 
 impl SandboxHandle {
-    /// Create a new, inactive handle (Phase 1 stub).
+    /// Create a new handle with the given temporary directory.
+    pub fn with_tmp_dir(tmp_dir: PathBuf) -> Self {
+        Self {
+            pid: None,
+            root: None,
+            tmp_dir,
+        }
+    }
+
+    /// Create a new, inactive handle (default tmp dir).
     pub fn new() -> Self {
         Self::default()
     }
@@ -44,22 +63,15 @@ impl SandboxHandle {
 
     /// Bind-mount a source path over a destination inside the sandbox root.
     ///
-    /// Phase 1: no-op. Phase 2 will invoke bwrap's `--bind` flag or write
-    /// into the overlay tmpfs.
-    pub fn bind_mount(
-        &self,
-        _source: &std::path::Path,
-        _dest: &std::path::Path,
-    ) -> Result<()> {
-        // Phase 2: implement via bwrap overlay
+    /// Phase 2: Currently handled directly in the runner builder.
+    pub fn bind_mount(&self, _source: &Path, _dest: &Path) -> Result<()> {
         Ok(())
     }
 
     /// Set an environment variable inside the sandbox.
     ///
-    /// Phase 1: no-op. Phase 2 will pass `--setenv` to bwrap.
+    /// Phase 2: Currently handled directly in the runner builder.
     pub fn set_env(&self, _key: &str, _value: &str) -> Result<()> {
-        // Phase 2: implement via bwrap --setenv
         Ok(())
     }
 }

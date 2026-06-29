@@ -21,11 +21,28 @@ impl IdentityProvider for MachineIdProvider {
         Ok(SignalValue::MachineId(id.trim().to_string()))
     }
 
-    fn projected_value(&self, _profile: &Profile) -> Result<SignalValue> {
-        anyhow::bail!("Not implemented yet (Phase 2)")
+    fn projected_value(&self, profile: &Profile) -> Result<SignalValue> {
+        profile
+            .machine_id
+            .clone()
+            .map(SignalValue::MachineId)
+            .ok_or_else(|| anyhow::anyhow!("Profile '{}' has no machine_id field", profile.name))
     }
 
-    fn apply(&self, _ns: &SandboxHandle, _profile: &Profile) -> Result<()> {
+    fn apply(&self, ns: &SandboxHandle, profile: &Profile) -> Result<()> {
+        let id = profile
+            .machine_id
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Profile '{}' has no machine_id field", profile.name))?;
+
+        // Validate: must be 32 lowercase hex chars
+        let stripped = id.replace('-', "");
+        if stripped.len() != 32 || !stripped.chars().all(|c| c.is_ascii_hexdigit()) {
+            anyhow::bail!("machine_id '{}' is not a valid 32-char hex string", id);
+        }
+
+        let tmp_path = ns.tmp_dir.join("machine-id");
+        std::fs::write(&tmp_path, format!("{stripped}\n"))?;
         Ok(())
     }
 }

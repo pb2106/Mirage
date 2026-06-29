@@ -30,11 +30,28 @@ impl IdentityProvider for DnsProvider {
         Ok(SignalValue::Dns(servers))
     }
 
-    fn projected_value(&self, _profile: &Profile) -> Result<SignalValue> {
-        anyhow::bail!("Not implemented yet")
+    fn projected_value(&self, profile: &Profile) -> Result<SignalValue> {
+        let dns = profile
+            .dns
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("Profile '{}' has no dns field", profile.name))?;
+        Ok(SignalValue::Dns(dns))
     }
 
-    fn apply(&self, _ns: &SandboxHandle, _profile: &Profile) -> Result<()> {
+    fn apply(&self, ns: &SandboxHandle, profile: &Profile) -> Result<()> {
+        let dns = profile
+            .dns
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Profile '{}' has no dns field", profile.name))?;
+
+        let mut resolv_conf = String::new();
+        for ns_ip in dns {
+            resolv_conf.push_str(&format!("nameserver {}\n", ns_ip));
+        }
+
+        let tmp_path = ns.tmp_dir.join("resolv.conf");
+        std::fs::write(&tmp_path, resolv_conf)?;
+
         Ok(())
     }
 }
