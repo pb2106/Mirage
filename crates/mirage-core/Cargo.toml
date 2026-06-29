@@ -1,0 +1,10 @@
+[package]
+name = "mirage-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.103"
+mirage-protocol = { path = "../mirage-protocol" }
+mirage-providers = { path = "../mirage-providers" }
+thiserror = "2.0.18"

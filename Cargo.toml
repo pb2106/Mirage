@@ -1,0 +1,28 @@
+[workspace]
+members = [
+    "crates/mirage-core",
+    "crates/mirage-protocol",
+    "crates/mirage-providers",
+    "crates/mirage-sandbox",
+    "crates/mirage-dbus-proxy",
+    "crates/mirage-netns",
+    "crates/mirage-plugin-host",
+    "crates/mirage-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Mirage Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mirage/mirage"
+
+[workspace.dependencies]
+mirage-core = { path = "crates/mirage-core" }
+mirage-protocol = { path = "crates/mirage-protocol" }
+mirage-providers = { path = "crates/mirage-providers" }
+mirage-sandbox = { path = "crates/mirage-sandbox" }
+mirage-dbus-proxy = { path = "crates/mirage-dbus-proxy" }
+mirage-netns = { path = "crates/mirage-netns" }
+mirage-plugin-host = { path = "crates/mirage-plugin-host" }

@@ -1,0 +1,15 @@
+[package]
+name = "mirage-providers"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.103"
+get_if_addrs = "0.5.3"
+mirage-protocol = { version = "0.1.0", path = "../mirage-protocol" }
+mirage-sandbox = { version = "0.1.0", path = "../mirage-sandbox" }
+nix = { version = "0.31.3", features = ["hostname"] }
+reqwest = { version = "0.13.4", features = ["blocking", "json"] }
+serde_json = "1.0.150"
+thiserror = "2.0.18"
+zbus = "5.16.0"
