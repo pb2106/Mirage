@@ -11,3 +11,6 @@ gps:
   lat: 35.6762
   lon: 139.6503
   accuracy: 15.0
+isolate_network: true
+cpu_model: "AMD Ryzen 7 7800X3D 8-Core Processor"
+mac_address: "F4:0F:24:A1:B2:C3"

@@ -236,6 +236,13 @@ fn build_bwrap_command(
         dynamic_args.push(vec!["--setenv".to_string(), "LC_ALL".to_string(), locale.clone()]);
     }
 
+    if let Ok(home) = std::env::var("HOME") {
+        dynamic_args.push(vec!["--setenv".to_string(), "HOME".to_string(), home]);
+    }
+    if let Ok(user) = std::env::var("USER") {
+        dynamic_args.push(vec!["--setenv".to_string(), "USER".to_string(), user]);
+    }
+
     use rand::seq::SliceRandom;
     let mut rng = rand::thread_rng();
     dynamic_args.shuffle(&mut rng);
