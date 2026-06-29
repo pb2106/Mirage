@@ -3,6 +3,8 @@ use mirage_protocol::{SignalKind, SignalValue};
 use mirage_providers::IdentityProvider;
 use std::collections::HashMap;
 
+pub mod session;
+
 pub struct AuditEngine {
     providers: Vec<Box<dyn IdentityProvider>>,
 }

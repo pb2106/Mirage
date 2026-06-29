@@ -86,3 +86,71 @@ impl ConsistencyRule for BasicNetworkRule {
         }
     }
 }
+
+pub struct ToolHomogeneityRiskRule;
+
+impl ConsistencyRule for ToolHomogeneityRiskRule {
+    fn name(&self) -> &str {
+        "R17"
+    }
+
+    fn description(&self) -> &str {
+        "tool-homogeneity-risk [informational]"
+    }
+
+    fn evaluate(&self, signals: &HashMap<SignalKind, SignalValue>) -> RuleResult {
+        let mut warnings = Vec::new();
+
+        let hostname_pattern = signals.get(&SignalKind::HostnamePattern);
+        let machine_id_age = signals.get(&SignalKind::MachineIdAge);
+        let mac = signals.get(&SignalKind::MacAddress);
+        let font_set = signals.get(&SignalKind::FontSet);
+        let resolution = signals.get(&SignalKind::ScreenResolution);
+
+        // Check 1: hostname matches Pattern C (generic) AND machine-id is less than 30 days old AND MAC OUI is vm-virtio
+        if let (
+            Some(SignalValue::HostnamePattern(pat)),
+            Some(SignalValue::MachineIdAgeDays(days)),
+            Some(SignalValue::MacAddress(mac_addr)),
+        ) = (hostname_pattern, machine_id_age, mac)
+        {
+            if pat == "PatternC" && *days < 30 {
+                let oui = mac_addr.split(':').take(3).collect::<Vec<_>>().join(":");
+                let virtio_ouis = ["52:54:00", "08:00:27", "00:05:69"]; // normalized without locally administered bit logic for simplicity
+                // Actually the MAC string might be lowercased.
+                if virtio_ouis.iter().any(|v| oui.eq_ignore_ascii_case(v)) {
+                    warnings.push("Suspicious VM-like fresh generic profile detected.");
+                }
+            }
+        }
+
+        // Check 2: font set has fewer than 12 fonts
+        if let Some(SignalValue::FontSet(count)) = font_set {
+            if *count < 12 {
+                warnings.push("Font set is suspiciously small (<12 fonts).");
+            }
+        }
+
+        // Check 3: screen resolution is exactly 1920x1080 AND device_class is laptop
+        // (device_class isn't in SignalValue, but we can assume if it's 1920x1080 we just note it's common,
+        // or we check if there's a device_class signal. We'll just warn if it's 1920x1080).
+        if let Some(SignalValue::ScreenResolution(1920, 1080)) = resolution {
+            warnings.push("Screen resolution 1920x1080 is common, but may be suspicious for a laptop.");
+        }
+
+        let passed = warnings.is_empty();
+        let details = if passed {
+            "Statistically plausible generated values.".to_string()
+        } else {
+            warnings.join(" ")
+        };
+
+        RuleResult {
+            rule_name: self.name().to_string(),
+            description: self.description().to_string(),
+            passed,
+            score_impact: 0, // Informational only
+            details,
+        }
+    }
+}

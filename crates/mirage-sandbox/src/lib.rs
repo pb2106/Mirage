@@ -33,10 +33,15 @@ pub struct SandboxHandle {
 
 impl Default for SandboxHandle {
     fn default() -> Self {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let hex: String = (0..8).map(|_| format!("{:x}", rng.gen::<u8>() % 16)).collect();
+        let base = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+        
         Self {
             pid: None,
             root: None,
-            tmp_dir: std::env::temp_dir().join(format!("mirage-{}", std::process::id())),
+            tmp_dir: PathBuf::from(base).join(hex),
         }
     }
 }

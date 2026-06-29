@@ -64,26 +64,30 @@ pub fn run_in_sandbox(app: &str, args: &[String], profile: &Profile) -> Result<(
         plugin_host.apply_all(profile, &tmp_dir);
     }
 
-    // ── Fake D-Bus (GeoClue2) ─────────────────────────────────────────────
-    // Must start BEFORE build_bwrap_command so the socket file exists when
-    // we check for it and add the --bind argument.
-    let _dbus_proxy = if profile.gps.is_some() {
-        println!("Starting fake D-Bus system bus for location spoofing...");
-        let proxy = spawn_fake_system_bus(&ns.tmp_dir, profile.gps.clone())?;
-        // Wait for dbus-daemon to create the socket file
-        let socket = ns.tmp_dir.join("system_bus_socket");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        while !socket.exists() && std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(50));
+    // ── Fake D-Bus (all intercepted interfaces) ──────────────────────────
+    // Always start the proxy regardless of whether GPS is set — hostname1,
+    // timedate1, locale1, login1, Accounts, and UPower are intercepted for
+    // every profile to prevent identity leakage through D-Bus queries.
+    println!("Starting fake D-Bus system bus for identity isolation...");
+    let _dbus_proxy = match spawn_fake_system_bus(&ns.tmp_dir, profile) {
+        Ok(proxy) => {
+            // Wait for dbus-daemon to create the socket file
+            let socket = ns.tmp_dir.join("system_bus_socket");
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            while !socket.exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            if socket.exists() {
+                Some(proxy)
+            } else {
+                eprintln!("Warning: dbus-daemon socket never appeared — D-Bus interception disabled");
+                None
+            }
         }
-        if !socket.exists() {
-            eprintln!("Warning: dbus-daemon socket never appeared — D-Bus spoofing disabled");
+        Err(e) => {
+            eprintln!("Warning: could not start D-Bus proxy: {} — D-Bus interception disabled", e);
             None
-        } else {
-            Some(proxy)
         }
-    } else {
-        None
     };
 
     let mut cmd = build_bwrap_command(&ns, profile, app, args)?;
@@ -145,80 +149,99 @@ fn build_bwrap_command(
     // Writable tmpfs for /tmp inside the sandbox
     cmd.args(["--tmpfs", "/tmp"]);
 
-    // ── UTS / hostname ─────────────────────────────────────────────────────
+    // ── Namespace isolation ───────────────────────────────────────────────
     cmd.arg("--unshare-uts");
     if let Some(ref hostname) = profile.hostname {
         cmd.args(["--hostname", hostname]);
     }
 
+    // --unshare-net gives the sandbox its own network namespace. Crucially,
+    // abstract Unix domain sockets (\0-prefixed names) are scoped per network
+    // namespace in Linux. This means the host's abstract D-Bus session socket
+    // (e.g. the real DBUS_SESSION_BUS_ADDRESS=unix:abstract=...) is completely
+    // invisible inside the sandbox — the D-Bus proxy cannot be bypassed via
+    // abstract sockets when this flag is present.
+    // NOTE: if isolate_network is also true, the netns wrapping below supersedes
+    // this flag. For profiles without network isolation we still add it here to
+    // guarantee abstract socket isolation.
+    if !profile.isolate_network.unwrap_or(false) {
+        cmd.arg("--unshare-net");
+    }
+
+    // Writable tmpfs for /tmp inside the sandbox (size sampled per profile)
+    cmd.args(["--tmpfs", "/tmp"]);
+
     // ── Bind-mount fake identity files ────────────────────────────────────
     let tmp_dir = &ns.tmp_dir;
+    let mut dynamic_args: Vec<Vec<String>> = Vec::new();
 
-    // /etc/machine-id
     let fake_machine_id = tmp_dir.join("machine-id");
     if fake_machine_id.exists() {
-        bind_over(&mut cmd, &fake_machine_id, Path::new("/etc/machine-id"));
+        dynamic_args.push(vec!["--bind".to_string(), fake_machine_id.to_string_lossy().into_owned(), "/etc/machine-id".to_string()]);
     }
 
-    // /etc/hostname
     let fake_hostname = tmp_dir.join("hostname");
     if fake_hostname.exists() {
-        bind_over(&mut cmd, &fake_hostname, Path::new("/etc/hostname"));
+        dynamic_args.push(vec!["--bind".to_string(), fake_hostname.to_string_lossy().into_owned(), "/etc/hostname".to_string()]);
     }
 
-    // /etc/timezone — only if the target actually exists on this host
     let fake_timezone = tmp_dir.join("timezone");
     if fake_timezone.exists() && Path::new("/etc/timezone").exists() {
-        bind_over(&mut cmd, &fake_timezone, Path::new("/etc/timezone"));
+        dynamic_args.push(vec!["--bind".to_string(), fake_timezone.to_string_lossy().into_owned(), "/etc/timezone".to_string()]);
     }
 
-    // /etc/localtime — bind the correct zoneinfo file
     if let Some(ref tz) = profile.timezone {
         let zone_src = PathBuf::from(format!("/usr/share/zoneinfo/{tz}"));
         if zone_src.exists() {
-            bind_over(&mut cmd, &zone_src, Path::new("/etc/localtime"));
+            dynamic_args.push(vec!["--bind".to_string(), zone_src.to_string_lossy().into_owned(), "/etc/localtime".to_string()]);
         }
-        cmd.args(["--setenv", "TZ", tz]);
+        dynamic_args.push(vec!["--setenv".to_string(), "TZ".to_string(), tz.clone()]);
     }
 
-    // /etc/resolv.conf
     let fake_resolv = tmp_dir.join("resolv.conf");
     if fake_resolv.exists() {
-        bind_over(&mut cmd, &fake_resolv, Path::new("/etc/resolv.conf"));
+        dynamic_args.push(vec!["--bind".to_string(), fake_resolv.to_string_lossy().into_owned(), "/etc/resolv.conf".to_string()]);
     }
 
-    // /proc/cpuinfo
     let fake_cpuinfo = tmp_dir.join("cpuinfo");
     if fake_cpuinfo.exists() {
-        bind_over(&mut cmd, &fake_cpuinfo, Path::new("/proc/cpuinfo"));
+        dynamic_args.push(vec!["--bind".to_string(), fake_cpuinfo.to_string_lossy().into_owned(), "/proc/cpuinfo".to_string()]);
     }
 
-    // MAC Address (we'll bind it over eth0 and wlan0 if they exist)
-    // ONLY do this if we are not isolating the network, because inside an isolated netns,
-    // the host's eth0/wlan0 do not exist, and bwrap will fail to bind mount over them.
     let fake_mac = tmp_dir.join("mac_address");
     if fake_mac.exists() && !profile.isolate_network.unwrap_or(false) {
-        bind_over(&mut cmd, &fake_mac, Path::new("/sys/class/net/eth0/address"));
-        bind_over(&mut cmd, &fake_mac, Path::new("/sys/class/net/wlan0/address"));
+        dynamic_args.push(vec!["--bind".to_string(), fake_mac.to_string_lossy().into_owned(), "/sys/class/net/eth0/address".to_string()]);
+        dynamic_args.push(vec!["--bind".to_string(), fake_mac.to_string_lossy().into_owned(), "/sys/class/net/wlan0/address".to_string()]);
     }
 
-    // D-Bus System Bus — bind our fake socket over the canonical path only.
-    // /var/run is a symlink to /run on modern systems so one bind suffices.
     let fake_dbus = tmp_dir.join("system_bus_socket");
     if fake_dbus.exists() {
-        bind_over(&mut cmd, &fake_dbus, Path::new("/run/dbus/system_bus_socket"));
+        let socket_str = fake_dbus.to_string_lossy().into_owned();
+        let dbus_addr = format!("unix:path={}", socket_str);
+        // Bind over the filesystem path so processes resolving the socket from /run see the proxy.
+        dynamic_args.push(vec!["--bind".to_string(), socket_str, "/run/dbus/system_bus_socket".to_string()]);
+        // Also set the environment variables so processes that use the abstract socket address
+        // (bypassing /run/dbus) are redirected to our proxy unix:path socket instead.
+        // Combined with --unshare-net this closes the abstract socket bypass completely.
+        dynamic_args.push(vec!["--setenv".to_string(), "DBUS_SESSION_BUS_ADDRESS".to_string(), dbus_addr.clone()]);
+        dynamic_args.push(vec!["--setenv".to_string(), "DBUS_SYSTEM_BUS_ADDRESS".to_string(), dbus_addr]);
     }
 
-    // ── Locale data ────────────────────────────────────────────────────────
-    // Bind /usr/lib/locale so installed locale data is visible inside the sandbox
     if Path::new("/usr/lib/locale").exists() {
-        cmd.args(["--bind", "/usr/lib/locale", "/usr/lib/locale"]);
+        dynamic_args.push(vec!["--bind".to_string(), "/usr/lib/locale".to_string(), "/usr/lib/locale".to_string()]);
     }
 
-    // Inject locale env vars
     if let Some(ref locale) = profile.locale {
-        cmd.args(["--setenv", "LANG", locale]);
-        cmd.args(["--setenv", "LC_ALL", locale]);
+        dynamic_args.push(vec!["--setenv".to_string(), "LANG".to_string(), locale.clone()]);
+        dynamic_args.push(vec!["--setenv".to_string(), "LC_ALL".to_string(), locale.clone()]);
+    }
+
+    use rand::seq::SliceRandom;
+    let mut rng = rand::thread_rng();
+    dynamic_args.shuffle(&mut rng);
+
+    for arg_set in dynamic_args {
+        cmd.args(arg_set);
     }
 
     // ── Application ───────────────────────────────────────────────────────
@@ -229,14 +252,54 @@ fn build_bwrap_command(
     Ok(cmd)
 }
 
-/// Add a `--bind <src> <dst>` pair to the command, only if the destination
-/// path exists on the host (bwrap requires the target to already exist).
-fn bind_over(cmd: &mut Command, src: &Path, dst: &Path) {
-    if dst.exists() {
-        cmd.args([
-            "--bind",
-            src.to_str().unwrap_or(""),
-            dst.to_str().unwrap_or(""),
-        ]);
+
+
+/// Launch an interactive session shell inside the sandbox
+pub fn run_shell_in_sandbox(profile: &Profile, use_tmux: bool) -> Result<()> {
+    let mut script = String::new();
+    script.push_str(&format!("export MIRAGE_PROFILE=\"{}\"\n", profile.name));
+    // Do NOT forward the real host D-Bus socket to the sandbox tmux session
+    script.push_str("unset DBUS_SESSION_BUS_ADDRESS\n");
+    script.push_str("unset DBUS_SYSTEM_BUS_ADDRESS\n");
+
+    if use_tmux {
+        script.push_str("if ! command -v tmux >/dev/null 2>&1; then\n");
+        script.push_str("  echo \"[mirage] Error: tmux not found in the sandbox. Install tmux or omit --tmux.\"\n");
+        script.push_str("  exit 1\n");
+        script.push_str("fi\n");
+        script.push_str("cat << 'EOF'\n");
+        script.push_str("    ╔══════════════════════════════════════════════════════╗\n");
+        // We use format to align the profile name nicely.
+        script.push_str(&format!("    ║  MIRAGE SESSION (tmux): {:<27} ║\n", profile.name));
+        script.push_str("    ║  New tmux panes inherit the sandbox (they are        ║\n");
+        script.push_str("    ║  real children of this tmux server).                 ║\n");
+        script.push_str("    ║                                                      ║\n");
+        script.push_str("    ║  SHARP EDGE: terminal emulator 'New Tab' / 'New      ║\n");
+        script.push_str("    ║  Window' buttons spawn outside the sandbox — they    ║\n");
+        script.push_str("    ║  ask the GUI app (not this shell) to fork a new      ║\n");
+        script.push_str("    ║  process, which is NOT in the namespace.             ║\n");
+        script.push_str("    ║  Always use tmux panes (Ctrl-B %) inside this        ║\n");
+        script.push_str("    ║  session, or a new `mirage shell` invocation.        ║\n");
+        script.push_str("    ╚══════════════════════════════════════════════════════╝\n");
+        script.push_str("EOF\n");
+        script.push_str(&format!("exec tmux new-session -s \"mirage-{}\"\n", profile.name));
+    } else {
+        script.push_str("cat << 'EOF'\n");
+        script.push_str("    ╔══════════════════════════════════════════════════════╗\n");
+        script.push_str(&format!("    ║  MIRAGE SESSION: {:<34} ║\n", profile.name));
+        script.push_str("    ║  All child processes inherit this profile.           ║\n");
+        script.push_str("    ║  WARNING: terminal 'New Tab' opens outside sandbox.  ║\n");
+        script.push_str("    ║  Use tmux panes or a new `mirage shell` invocation.  ║\n");
+        script.push_str("    ║  Type 'exit' or Ctrl-D to leave the session.         ║\n");
+        script.push_str("    ╚══════════════════════════════════════════════════════╝\n");
+        script.push_str("EOF\n");
+        script.push_str("exec bash\n");
     }
+
+    let args = vec!["-c".to_string(), script];
+    let res = run_in_sandbox("bash", &args, profile);
+
+    println!("[mirage] Session '{}' ended. You are now on the host.", profile.name);
+
+    res
 }

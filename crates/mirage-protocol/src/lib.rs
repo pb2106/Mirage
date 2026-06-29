@@ -16,6 +16,10 @@ pub enum SignalKind {
     BluetoothScan,
     Cpu,
     MacAddress,
+    FontSet,
+    ScreenResolution,
+    HostnamePattern,
+    MachineIdAge,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -33,6 +37,10 @@ pub enum SignalValue {
     BluetoothScan(Vec<BluetoothDevice>),
     Cpu(String),
     MacAddress(String),
+    FontSet(usize),
+    ScreenResolution(u32, u32),
+    HostnamePattern(String),
+    MachineIdAgeDays(u32),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -74,6 +82,8 @@ pub struct Profile {
     /// Whether to isolate the network into a separate netns (Phase 3).
     #[serde(default)]
     pub isolate_network: Option<bool>,
+    /// Randomized tmpfs size (e.g. "512m") for sandbox structural diversity.
+    pub tmpfs_size: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

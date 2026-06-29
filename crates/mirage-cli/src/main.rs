@@ -26,6 +26,14 @@ enum Commands {
     Audit {
         /// Target process ID to audit (optional — audits host if omitted)
         pid: Option<u32>,
+
+        /// Run concurrent session leak check
+        #[arg(long)]
+        session: bool,
+
+        /// Suppress the session leak warning
+        #[arg(long)]
+        no_session_warn: bool,
     },
 
     /// Launch an application inside a sandboxed identity profile
@@ -40,6 +48,17 @@ enum Commands {
         /// Arguments to pass to the launched application
         #[arg(last = true)]
         args: Vec<String>,
+    },
+
+    /// Drop into an interactive shell inside the sandboxed profile
+    Shell {
+        /// Path to the YAML profile file to use
+        #[arg(short, long)]
+        profile: PathBuf,
+
+        /// Launch the shell inside a tmux session
+        #[arg(long)]
+        tmux: bool,
     },
 }
 
@@ -62,7 +81,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Audit { pid } => {
+        Commands::Audit { pid, session, no_session_warn } => {
             println!("Starting Mirage Audit Engine...");
             if let Some(p) = pid {
                 println!("Auditing PID: {}", p);
@@ -81,6 +100,7 @@ fn main() -> Result<()> {
             println!("\n[Consistency Check]");
             let mut consistency_engine = mirage_core::consistency::ConsistencyEngine::new();
             consistency_engine.register_rule(Box::new(mirage_core::consistency::BasicNetworkRule));
+            consistency_engine.register_rule(Box::new(mirage_core::consistency::ToolHomogeneityRiskRule));
 
             let rule_results = consistency_engine.evaluate(&results);
             for res in &rule_results {
@@ -90,6 +110,12 @@ fn main() -> Result<()> {
 
             let score = mirage_core::consistency::ConsistencyEngine::calculate_score(&rule_results);
             println!("Overall Consistency Score: {}/100", score);
+
+            if *session {
+                if let Err(e) = mirage_core::audit::session::check_session_leak(*no_session_warn) {
+                    eprintln!("Session check error: {}", e);
+                }
+            }
         }
 
         Commands::Run { app, profile, args } => {
@@ -99,6 +125,13 @@ fn main() -> Result<()> {
 
             // Phase 2: launch via bwrap
             mirage_core::runner::run_in_sandbox(app, args, &profile)?;
+        }
+
+        Commands::Shell { profile, tmux } => {
+            let profile_obj = mirage_protocol::load_profile(profile)?;
+            println!("Loaded profile: {}", profile_obj.name);
+
+            mirage_core::runner::run_shell_in_sandbox(&profile_obj, *tmux)?;
         }
     }
 
