@@ -84,7 +84,7 @@ static VTABLE: MiragePluginVtable = MiragePluginVtable {
 };
 
 /// The single required export.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn mirage_plugin_vtable() -> *const MiragePluginVtable {
     &VTABLE
 }
