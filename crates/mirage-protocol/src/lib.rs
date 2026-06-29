@@ -94,3 +94,59 @@ pub fn load_profile(path: &Path) -> anyhow::Result<Profile> {
         .map_err(|e| anyhow::anyhow!("Failed to parse profile {:?}: {}", path, e))?;
     Ok(profile)
 }
+
+// ── Plugin ABI ────────────────────────────────────────────────────────────
+// Stable C ABI that every Mirage plugin `.so` must export.
+// Both the plugin crate and the plugin-host crate depend on these types
+// from mirage-protocol, guaranteeing ABI alignment.
+
+/// Opaque result type returned by plugin methods over FFI.
+/// 0 = success, non-zero = error code.
+pub type MiragePluginResult = i32;
+
+pub const MIRAGE_OK: MiragePluginResult = 0;
+pub const MIRAGE_ERR_NOT_SUPPORTED: MiragePluginResult = 1;
+pub const MIRAGE_ERR_GENERAL: MiragePluginResult = 2;
+
+/// Vtable that every plugin must populate and return from `mirage_plugin_vtable()`.
+///
+/// Layout must never change between versions — add new fields at the end only,
+/// and bump `abi_version` accordingly.
+#[repr(C)]
+pub struct MiragePluginVtable {
+    /// Monotonically-increasing ABI version. Currently 1.
+    pub abi_version: u32,
+    /// Null-terminated UTF-8 plugin name (e.g. "my-custom-provider").
+    pub name: *const std::ffi::c_char,
+    /// Null-terminated UTF-8 description.
+    pub description: *const std::ffi::c_char,
+    /// Called once after load so the plugin can initialise its own state.
+    pub init: extern "C" fn() -> MiragePluginResult,
+    /// Called before unload so the plugin can free its own state.
+    pub destroy: extern "C" fn(),
+    /// Run a projection step.  `profile_json` is the serialised [`Profile`]
+    /// as a null-terminated UTF-8 JSON string.  `tmp_dir` is the sandbox
+    /// temp directory path (null-terminated UTF-8).
+    /// Returns [`MIRAGE_OK`] on success.
+    pub apply: extern "C" fn(
+        profile_json: *const std::ffi::c_char,
+        tmp_dir: *const std::ffi::c_char,
+    ) -> MiragePluginResult,
+    /// Optional: return a null-terminated UTF-8 JSON string describing the
+    /// current real value of this signal.  Caller must free via `free_string`.
+    /// May be null if auditing is not supported.
+    pub read_real: Option<extern "C" fn() -> *mut std::ffi::c_char>,
+    /// Free a string that was allocated by the plugin (e.g. from `read_real`).
+    pub free_string: extern "C" fn(ptr: *mut std::ffi::c_char),
+}
+
+// SAFETY: The vtable is a read-only bag of function pointers after init.
+unsafe impl Send for MiragePluginVtable {}
+unsafe impl Sync for MiragePluginVtable {}
+
+/// The single exported symbol every plugin `.so` must provide.
+/// ```no_run
+/// #[no_mangle]
+/// pub extern "C" fn mirage_plugin_vtable() -> *const MiragePluginVtable { ... }
+/// ```
+pub const MIRAGE_PLUGIN_VTABLE_SYMBOL: &[u8] = b"mirage_plugin_vtable\0";

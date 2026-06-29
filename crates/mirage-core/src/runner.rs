@@ -10,6 +10,7 @@ use mirage_providers::{
 use mirage_sandbox::SandboxHandle;
 use mirage_netns::Netns;
 use mirage_dbus_proxy::spawn_fake_system_bus;
+use mirage_plugin_host::PluginHost;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -43,7 +44,7 @@ pub fn run_in_sandbox(app: &str, args: &[String], profile: &Profile) -> Result<(
     // SandboxHandle holds the per-run tmp dir so providers write there
     let ns = SandboxHandle::with_tmp_dir(tmp_dir.clone());
 
-    // Let each provider apply its projection into the tmp dir
+    // Let each built-in provider apply its projection into the tmp dir
     for provider in projection_providers() {
         if let Err(e) = provider.apply(&ns, profile) {
             eprintln!(
@@ -52,6 +53,15 @@ pub fn run_in_sandbox(app: &str, args: &[String], profile: &Profile) -> Result<(
                 e
             );
         }
+    }
+
+    // ── Plugin providers ──────────────────────────────────────────────────
+    // Load plugins from ~/.config/mirage/plugins/*.so and run their apply()
+    let mut plugin_host = PluginHost::new();
+    plugin_host.load_from_default_dir();
+    if !plugin_host.is_empty() {
+        println!("[plugin-host] Applying {} plugin(s)...", plugin_host.plugins().len());
+        plugin_host.apply_all(profile, &tmp_dir);
     }
 
     // ── Fake D-Bus (GeoClue2) ─────────────────────────────────────────────

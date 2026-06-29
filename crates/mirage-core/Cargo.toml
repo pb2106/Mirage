@@ -10,6 +10,8 @@ mirage-providers = { path = "../mirage-providers" }
 mirage-sandbox = { path = "../mirage-sandbox" }
 mirage-netns = { path = "../mirage-netns" }
 mirage-dbus-proxy = { path = "../mirage-dbus-proxy" }
+mirage-plugin-host = { path = "../mirage-plugin-host" }
+serde_json = "1.0.128"
 thiserror = "2.0.18"
 
 [dev-dependencies]

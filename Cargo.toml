@@ -8,6 +8,7 @@ members = [
     "crates/mirage-netns",
     "crates/mirage-plugin-host",
     "crates/mirage-cli",
+    "crates/mirage-tui",
 ]
 resolver = "2"
 

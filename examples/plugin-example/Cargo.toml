@@ -1,0 +1,11 @@
+[package]
+name = "mirage-example-plugin"
+version = "0.1.0"
+edition = "2024"
+
+# Build as a cdylib so it produces a .so file
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+mirage-protocol = { path = "../../crates/mirage-protocol" }
