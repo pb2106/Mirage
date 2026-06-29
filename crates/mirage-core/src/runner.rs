@@ -4,10 +4,11 @@
 use anyhow::{Context, Result};
 use mirage_protocol::Profile;
 use mirage_providers::{
-    dns::DnsProvider, hostname::HostnameProvider, locale::LocaleProvider, machine_id::MachineIdProvider,
-    timezone::TimezoneProvider, IdentityProvider,
+    cpu::CpuProvider, dns::DnsProvider, hostname::HostnameProvider, locale::LocaleProvider, 
+    mac::MacProvider, machine_id::MachineIdProvider, timezone::TimezoneProvider, IdentityProvider,
 };
 use mirage_sandbox::SandboxHandle;
+use mirage_netns::Netns;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -19,6 +20,8 @@ fn projection_providers() -> Vec<Box<dyn IdentityProvider>> {
         Box::new(TimezoneProvider),
         Box::new(LocaleProvider),
         Box::new(DnsProvider),
+        Box::new(CpuProvider),
+        Box::new(MacProvider),
     ]
 }
 
@@ -51,6 +54,26 @@ pub fn run_in_sandbox(app: &str, args: &[String], profile: &Profile) -> Result<(
     }
 
     let mut cmd = build_bwrap_command(&ns, profile, app, args)?;
+    
+    // Set up network namespace if requested
+    let _netns = if profile.isolate_network.unwrap_or(false) {
+        println!("Setting up isolated network namespace (may prompt for sudo)...");
+        let netns = Netns::create(std::process::id(), profile.mac_address.as_deref())?;
+        
+        let user = std::env::var("USER").unwrap_or_else(|_| "nobody".to_string());
+        
+        // We must wrap the bwrap command in `sudo ip netns exec mirage-pid sudo -u user bwrap ...`
+        let mut wrapped_cmd = Command::new("sudo");
+        wrapped_cmd.args(["ip", "netns", "exec", &netns.name, "sudo", "-u", &user]);
+        wrapped_cmd.arg(cmd.get_program());
+        wrapped_cmd.args(cmd.get_args());
+        
+        cmd = wrapped_cmd;
+        Some(netns)
+    } else {
+        None
+    };
+
     println!("Launching: {:?}", cmd);
 
     let status = cmd
@@ -59,6 +82,7 @@ pub fn run_in_sandbox(app: &str, args: &[String], profile: &Profile) -> Result<(
 
     // Clean up temp dir after the child exits
     let _ = std::fs::remove_dir_all(&tmp_dir);
+    // _netns drops here and cleans up the namespace
 
     if !status.success() {
         anyhow::bail!("Sandboxed process exited with status: {}", status);
@@ -129,6 +153,21 @@ fn build_bwrap_command(
     let fake_resolv = tmp_dir.join("resolv.conf");
     if fake_resolv.exists() {
         bind_over(&mut cmd, &fake_resolv, Path::new("/etc/resolv.conf"));
+    }
+
+    // /proc/cpuinfo
+    let fake_cpuinfo = tmp_dir.join("cpuinfo");
+    if fake_cpuinfo.exists() {
+        bind_over(&mut cmd, &fake_cpuinfo, Path::new("/proc/cpuinfo"));
+    }
+
+    // MAC Address (we'll bind it over eth0 and wlan0 if they exist)
+    // ONLY do this if we are not isolating the network, because inside an isolated netns,
+    // the host's eth0/wlan0 do not exist, and bwrap will fail to bind mount over them.
+    let fake_mac = tmp_dir.join("mac_address");
+    if fake_mac.exists() && !profile.isolate_network.unwrap_or(false) {
+        bind_over(&mut cmd, &fake_mac, Path::new("/sys/class/net/eth0/address"));
+        bind_over(&mut cmd, &fake_mac, Path::new("/sys/class/net/wlan0/address"));
     }
 
     // ── Locale data ────────────────────────────────────────────────────────

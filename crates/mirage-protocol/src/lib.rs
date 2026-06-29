@@ -14,6 +14,8 @@ pub enum SignalKind {
     WebRtc,
     WifiScan,
     BluetoothScan,
+    Cpu,
+    MacAddress,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -29,6 +31,8 @@ pub enum SignalValue {
     WebRtc { public_ips: Vec<String>, local_ips: Vec<String> },
     WifiScan(Vec<WifiNetwork>),
     BluetoothScan(Vec<BluetoothDevice>),
+    Cpu(String),
+    MacAddress(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -59,10 +63,17 @@ pub struct Profile {
     pub hostname: Option<String>,
     /// Machine-ID to project (32 hex chars).
     pub machine_id: Option<String>,
+    /// Fake CPU model name (e.g. "Intel(R) Core(TM) i9-10900K CPU @ 3.70GHz").
+    pub cpu_model: Option<String>,
+    /// Fake MAC address (e.g. "00:11:22:33:44:55").
+    pub mac_address: Option<String>,
     /// DNS resolvers to expose inside the sandbox.
     pub dns: Option<Vec<String>>,
     /// Fake GPS coordinates.
     pub gps: Option<GpsCoord>,
+    /// Whether to isolate the network into a separate netns (Phase 3).
+    #[serde(default)]
+    pub isolate_network: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

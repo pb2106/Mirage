@@ -11,3 +11,6 @@ gps:
   lat: 51.5074
   lon: -0.1278
   accuracy: 20.0
+isolate_network: true
+cpu_model: "Intel(R) Core(TM) i9-14900K CPU @ 3.20GHz"
+mac_address: "AA:BB:CC:DD:EE:FF"

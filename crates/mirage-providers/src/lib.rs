@@ -3,10 +3,12 @@ use mirage_protocol::{Profile, SignalKind, SignalValue};
 use mirage_sandbox::SandboxHandle;
 
 pub mod bluetooth;
+pub mod cpu;
 pub mod dns;
 pub mod geoclue;
 pub mod hostname;
 pub mod locale;
+pub mod mac;
 pub mod machine_id;
 pub mod network;
 pub mod timezone;

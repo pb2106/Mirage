@@ -1058,6 +1058,7 @@ name = "mirage-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "mirage-netns",
  "mirage-protocol",
  "mirage-providers",
  "mirage-sandbox",
@@ -1071,6 +1072,10 @@ version = "0.1.0"
 [[package]]
 name = "mirage-netns"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "thiserror",
+]
 
 [[package]]
 name = "mirage-plugin-host"

@@ -8,6 +8,7 @@ anyhow = "1.0.103"
 mirage-protocol = { path = "../mirage-protocol" }
 mirage-providers = { path = "../mirage-providers" }
 mirage-sandbox = { path = "../mirage-sandbox" }
+mirage-netns = { path = "../mirage-netns" }
 thiserror = "2.0.18"
 
 [dev-dependencies]
