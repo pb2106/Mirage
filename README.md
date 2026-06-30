@@ -52,6 +52,45 @@ Mirage provides absolute control over the signals your sandbox exposes to the wo
 
 ---
 
+## Limitations & Browser Fingerprinting
+
+Mirage is an **Operating System-level sandbox**. It successfully intercepts OS signals, filesystem queries, and D-Bus communications. However, it cannot automatically defeat advanced JavaScript fingerprinting occurring *inside* a web browser.
+
+**Important Considerations for Web Browsing:**
+1. **WebGL / Graphics Card:** Browsers natively query your GPU drivers. Mirage mitigates this by forcing software rendering (`LIBGL_ALWAYS_SOFTWARE=1`) which spoofs your GPU as `llvmpipe`, but you may want to use extensions to randomize Canvas/WebGL hashes.
+2. **IP & Geolocation:** Mirage isolates the network namespace, but does not provide VPN tunnels itself. To hide your IP address, **run a VPN on your host machine**. Mirage's NAT will route sandbox traffic securely through your host's VPN.
+3. **Application Layer Leaks:** Standard browsers (like Firefox or Chrome) leak User-Agent, Accept-Language, AudioContext, and Font lists. 
+
+**For true identity isolation, we highly recommend stacking your defenses:**
+- Run **Mirage** (hides the OS and Hardware).
+- Run a **Host VPN** (hides the IP).
+- Run **Tor Browser or Mullvad Browser** inside the sandbox (hides the browser fingerprint).
+- Alternatively, use extensions like **CanvasBlocker** in standard browsers.
+
+### Automated VPN & Tor Proxies (Zero-Config)
+To make VPN and Tor management effortless, Mirage includes automatic network routing:
+
+**1. OpenVPN Automation:** 
+If you place an OpenVPN configuration file inside the `ovpn/` directory that perfectly matches your profile name, Mirage will automatically launch `openvpn` in the background inside your isolated network namespace when you start a shell session!
+*   *Note for new installs:* Create an `ovpn/` folder in the root directory (it is ignored by git).
+*   Download an OpenVPN config (e.g., from VPN Gate or ProtonVPN) and name it to match your profile (e.g., `ovpn/london-vpn.ovpn`).
+
+**2. Dynamic Tor Exit Nodes:** 
+If `tor` is installed on your host system, Mirage will automatically spawn an isolated Tor proxy inside the sandbox (listening on `127.0.0.1:9050`). It dynamically generates a `torrc` file forcing the Tor Exit Nodes to match the country inferred from your profile name (e.g., UK for `london-vpn`, JP for `tokyo`). You can simply route Firefox through `socks5://127.0.0.1:9050` to get a free, regionally accurate IP!
+
+---
+
+## Project Structure
+
+*   `crates/` — The core Rust workspace containing the CLI (`mirage-cli`), the sandboxing engine (`mirage-core`), D-Bus proxy (`mirage-dbus-proxy`), and identity providers.
+*   `gui/` — The Tauri + React frontend dashboard.
+*   `profiles/` — YAML files defining your virtual identities (e.g., `london-vpn.yaml`). This is where you configure timezones, GPS, and network isolation.
+*   `ovpn/` — (User created) Directory to place your downloaded `.ovpn` files for automatic VPN launching inside the sandbox.
+*   `examples/plugin-example/` — A boilerplate template showing how to write your own custom C-ABI plugins (in Rust) to spoof extra signals inside the sandbox.
+*   `docs/` — Architecture design documents and security audits (e.g., `SECURITY_AUDIT.md`).
+
+---
+
 ## Setup & Installation
 
 ### Step 1: Install System Dependencies

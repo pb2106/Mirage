@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use mirage_protocol::Profile;
 use mirage_providers::{
     cpu::CpuProvider, dns::DnsProvider, hostname::HostnameProvider, locale::LocaleProvider, 
-    mac::MacProvider, machine_id::MachineIdProvider, timezone::TimezoneProvider, IdentityProvider,
+    mac::MacProvider, machine_id::MachineIdProvider, timezone::TimezoneProvider, username::UsernameProvider, IdentityProvider,
 };
 use mirage_sandbox::SandboxHandle;
 use mirage_netns::Netns;
@@ -24,6 +24,7 @@ fn projection_providers() -> Vec<Box<dyn IdentityProvider>> {
         Box::new(DnsProvider),
         Box::new(CpuProvider),
         Box::new(MacProvider),
+        Box::new(UsernameProvider),
     ]
 }
 
@@ -148,6 +149,8 @@ fn build_bwrap_command(
 
     // Writable tmpfs for /tmp inside the sandbox
     cmd.args(["--tmpfs", "/tmp"]);
+    // Writable tmpfs for /home to hide other users and allow creating fake home dirs
+    cmd.args(["--tmpfs", "/home"]);
 
     // ── Namespace isolation ───────────────────────────────────────────────
     cmd.arg("--unshare-uts");
@@ -208,6 +211,11 @@ fn build_bwrap_command(
         dynamic_args.push(vec!["--bind".to_string(), fake_cpuinfo.to_string_lossy().into_owned(), "/proc/cpuinfo".to_string()]);
     }
 
+    let fake_passwd = tmp_dir.join("passwd");
+    if fake_passwd.exists() {
+        dynamic_args.push(vec!["--bind".to_string(), fake_passwd.to_string_lossy().into_owned(), "/etc/passwd".to_string()]);
+    }
+
     let fake_mac = tmp_dir.join("mac_address");
     if fake_mac.exists() && !profile.isolate_network.unwrap_or(false) {
         dynamic_args.push(vec!["--bind".to_string(), fake_mac.to_string_lossy().into_owned(), "/sys/class/net/eth0/address".to_string()]);
@@ -237,11 +245,48 @@ fn build_bwrap_command(
     }
 
     if let Ok(home) = std::env::var("HOME") {
-        dynamic_args.push(vec!["--setenv".to_string(), "HOME".to_string(), home]);
+        if let Some(ref fake_user) = profile.username {
+            let fake_home = format!("/home/{}", fake_user);
+            dynamic_args.push(vec!["--dir".to_string(), fake_home.clone()]);
+            dynamic_args.push(vec!["--bind".to_string(), home.clone(), fake_home.clone()]);
+            dynamic_args.push(vec!["--setenv".to_string(), "HOME".to_string(), fake_home.clone()]);
+            let xauth = format!("{}/.Xauthority", home);
+            if Path::new(&xauth).exists() {
+                dynamic_args.push(vec!["--bind".to_string(), xauth, format!("{}/.Xauthority", fake_home)]);
+            }
+        } else {
+            dynamic_args.push(vec!["--dir".to_string(), home.clone()]);
+            dynamic_args.push(vec!["--bind".to_string(), home.clone(), home.clone()]);
+            dynamic_args.push(vec!["--setenv".to_string(), "HOME".to_string(), home.clone()]);
+            let xauth = format!("{}/.Xauthority", home);
+            if Path::new(&xauth).exists() {
+                dynamic_args.push(vec!["--bind".to_string(), xauth.clone(), xauth]);
+            }
+        }
     }
-    if let Ok(user) = std::env::var("USER") {
+
+    if let Some(ref fake_user) = profile.username {
+        dynamic_args.push(vec!["--setenv".to_string(), "USER".to_string(), fake_user.clone()]);
+    } else if let Ok(user) = std::env::var("USER") {
         dynamic_args.push(vec!["--setenv".to_string(), "USER".to_string(), user]);
     }
+
+    if Path::new("/tmp/.X11-unix").exists() {
+        dynamic_args.push(vec!["--bind".to_string(), "/tmp/.X11-unix".to_string(), "/tmp/.X11-unix".to_string()]);
+    }
+    if let Ok(display) = std::env::var("DISPLAY") {
+        dynamic_args.push(vec!["--setenv".to_string(), "DISPLAY".to_string(), display]);
+    }
+    if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
+        dynamic_args.push(vec!["--bind".to_string(), xdg.clone(), xdg.clone()]);
+        dynamic_args.push(vec!["--setenv".to_string(), "XDG_RUNTIME_DIR".to_string(), xdg]);
+    }
+    if let Ok(wayland) = std::env::var("WAYLAND_DISPLAY") {
+        dynamic_args.push(vec!["--setenv".to_string(), "WAYLAND_DISPLAY".to_string(), wayland]);
+    }
+
+    // Force software rendering to spoof GPU
+    dynamic_args.push(vec!["--setenv".to_string(), "LIBGL_ALWAYS_SOFTWARE".to_string(), "1".to_string()]);
 
     use rand::seq::SliceRandom;
     let mut rng = rand::thread_rng();
@@ -268,6 +313,45 @@ pub fn run_shell_in_sandbox(profile: &Profile, use_tmux: bool) -> Result<()> {
     // Do NOT forward the real host D-Bus socket to the sandbox tmux session
     script.push_str("unset DBUS_SESSION_BUS_ADDRESS\n");
     script.push_str("unset DBUS_SYSTEM_BUS_ADDRESS\n");
+
+    // ── Automate OpenVPN ──
+    let ovpn_path = PathBuf::from(format!("ovpn/{}.ovpn", profile.name));
+    if ovpn_path.exists() {
+        script.push_str(&format!("if command -v openvpn >/dev/null 2>&1; then\n"));
+        script.push_str(&format!("  echo \"[mirage] Found {}! Starting OpenVPN in background...\"\n", ovpn_path.display()));
+        script.push_str(&format!("  sudo openvpn --config {} --daemon\n", ovpn_path.display()));
+        script.push_str(&format!("else\n"));
+        script.push_str(&format!("  echo \"[mirage] Warning: {} found but 'openvpn' is not installed.\"\n", ovpn_path.display()));
+        script.push_str(&format!("fi\n"));
+    }
+
+    // ── Automate Tor Exit Nodes ──
+    let country = if profile.name.to_lowercase().contains("london") || profile.name.to_lowercase().contains("uk") {
+        Some("uk")
+    } else if profile.name.to_lowercase().contains("tokyo") || profile.name.to_lowercase().contains("jp") || profile.name.to_lowercase().contains("japan") {
+        Some("jp")
+    } else if profile.name.to_lowercase().contains("us") || profile.name.to_lowercase().contains("america") {
+        Some("us")
+    } else if profile.name.to_lowercase().contains("ca") || profile.name.to_lowercase().contains("canada") {
+        Some("ca")
+    } else {
+        None
+    };
+
+    if let Some(c) = country {
+        script.push_str(&format!("if command -v tor >/dev/null 2>&1; then\n"));
+        script.push_str(&format!("  echo \"[mirage] Starting isolated Tor proxy for region: {{{}}} (Port 9050)...\"\n", c));
+        script.push_str(&format!("  mkdir -p /tmp/tor_data && chmod 700 /tmp/tor_data\n"));
+        script.push_str(&format!("  echo 'ExitNodes {{{}}}' > /tmp/torrc\n", c));
+        script.push_str(&format!("  echo 'StrictNodes 1' >> /tmp/torrc\n"));
+        script.push_str(&format!("  echo 'DataDirectory /tmp/tor_data' >> /tmp/torrc\n"));
+        script.push_str(&format!("  echo 'PidFile /tmp/tor.pid' >> /tmp/torrc\n"));
+        script.push_str(&format!("  echo 'Log notice file /tmp/tor.log' >> /tmp/torrc\n"));
+        script.push_str(&format!("  tor -f /tmp/torrc --RunAsDaemon 1\n"));
+        script.push_str(&format!("else\n"));
+        script.push_str(&format!("  echo \"[mirage] 'tor' is not installed. Run 'sudo apt install tor' on your host to use Auto-Tor.\"\n"));
+        script.push_str(&format!("fi\n"));
+    }
 
     if use_tmux {
         script.push_str("if ! command -v tmux >/dev/null 2>&1; then\n");

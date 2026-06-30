@@ -3,6 +3,7 @@ name: tokyo
 timezone: Asia/Tokyo
 locale: ja_JP.UTF-8
 hostname: ubuntu-tok01
+username: "ShadowRonin"
 machine_id: cafebabecafebabecafebabecafebabe
 dns:
   - 8.8.8.8

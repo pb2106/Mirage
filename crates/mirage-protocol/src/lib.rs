@@ -20,6 +20,7 @@ pub enum SignalKind {
     ScreenResolution,
     HostnamePattern,
     MachineIdAge,
+    Username,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -41,6 +42,7 @@ pub enum SignalValue {
     ScreenResolution(u32, u32),
     HostnamePattern(String),
     MachineIdAgeDays(u32),
+    Username(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -71,6 +73,8 @@ pub struct Profile {
     pub hostname: Option<String>,
     /// Machine-ID to project (32 hex chars).
     pub machine_id: Option<String>,
+    /// Fake Username (e.g. "devuser").
+    pub username: Option<String>,
     /// Fake CPU model name (e.g. "Intel(R) Core(TM) i9-10900K CPU @ 3.70GHz").
     pub cpu_model: Option<String>,
     /// Fake MAC address (e.g. "00:11:22:33:44:55").

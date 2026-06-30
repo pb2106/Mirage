@@ -12,6 +12,7 @@ pub mod mac;
 pub mod machine_id;
 pub mod network;
 pub mod timezone;
+pub mod username;
 pub mod webrtc;
 pub mod wifi;
 
