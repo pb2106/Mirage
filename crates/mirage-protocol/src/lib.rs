@@ -88,6 +88,12 @@ pub struct Profile {
     pub isolate_network: Option<bool>,
     /// Randomized tmpfs size (e.g. "512m") for sandbox structural diversity.
     pub tmpfs_size: Option<String>,
+    /// Grant CAP_NET_RAW inside the sandbox so tools like `ping` work.
+    /// When true, --share-net replaces --unshare-net (host netns is shared)
+    /// unless isolate_network is also true (netns wrapper handles routing).
+    /// Defaults to false.
+    #[serde(default)]
+    pub allow_ping: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

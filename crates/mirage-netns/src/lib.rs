@@ -66,6 +66,12 @@ impl Netns {
         ns.exec(&["sysctl", "-w", "net.ipv6.conf.all.disable_ipv6=1"])?;
         ns.exec(&["sysctl", "-w", "net.ipv6.conf.default.disable_ipv6=1"])?;
 
+        // 8a. Allow unprivileged ICMP sockets (ping) inside the namespace.
+        //     Each netns starts with ping_group_range = "1 0" (nobody allowed).
+        //     Setting it to the full GID range lets any user run ping via
+        //     SOCK_DGRAM IPPROTO_ICMP without needing CAP_NET_RAW.
+        ns.exec(&["sysctl", "-w", "net.ipv4.ping_group_range=0 2147483647"])?;
+
         // 8. Enable IP forwarding on host & setup NAT
         run_sudo(&["sysctl", "-w", "net.ipv4.ip_forward=1"])?;
         run_sudo(&[

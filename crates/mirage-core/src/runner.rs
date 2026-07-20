@@ -167,7 +167,15 @@ fn build_bwrap_command(
     // NOTE: if isolate_network is also true, the netns wrapping below supersedes
     // this flag. For profiles without network isolation we still add it here to
     // guarantee abstract socket isolation.
-    if !profile.isolate_network.unwrap_or(false) {
+    if profile.isolate_network.unwrap_or(false) {
+        // Handled by `sudo ip netns exec` wrapper below; no bwrap flag needed.
+    } else if profile.allow_ping {
+        // Share the host network namespace so raw sockets (CAP_NET_RAW) work
+        // over real interfaces. Abstract Unix socket isolation is lost here,
+        // but the D-Bus proxy env-var redirect + unix:path= address still
+        // prevents identity leakage through D-Bus.
+        cmd.arg("--share-net");
+    } else {
         cmd.arg("--unshare-net");
     }
 
